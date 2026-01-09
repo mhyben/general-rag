@@ -10,9 +10,9 @@ import gc
 
 # Set environment variables to reduce GPU memory usage
 os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
-# Force CPU if CUDA_VISIBLE_DEVICES is set to empty
-if os.environ.get('CUDA_VISIBLE_DEVICES') == '':
-    os.environ.setdefault('TORCH_DEVICE', 'cpu')
+
+# Store original CUDA_VISIBLE_DEVICES to restore later if needed
+_original_cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES')
 
 try:
     from rich.console import Console
@@ -29,13 +29,8 @@ except ImportError:
     print("Error: inquirer library not installed. Run: pip install -r requirements.txt")
     sys.exit(1)
 
-try:
-    from marker.converters.pdf import PdfConverter
-    from marker.models import create_model_dict
-    from marker.output import text_from_rendered
-except ImportError:
-    print("Error: marker-pdf not installed. Run: pip install marker-pdf")
-    sys.exit(1)
+# Marker imports will be done lazily after device selection
+# This is critical to ensure environment variables are set before models load
 
 
 console = Console()
@@ -86,18 +81,47 @@ def process_document(source_file: Path, md_file: Path, use_cpu: bool = False) ->
         md_file: Output markdown file path
         use_cpu: Force CPU mode to avoid GPU memory issues
     """
-    # Set device before importing/creating models
+    # Set device environment variables BEFORE importing Marker
+    # This is critical - Marker reads these at import time
     if use_cpu:
+        # Hide GPU completely
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
         os.environ['TORCH_DEVICE'] = 'cpu'
-    elif 'TORCH_DEVICE' in os.environ and os.environ['TORCH_DEVICE'] == 'cpu':
-        # Keep CPU mode if already set
-        pass
     else:
-        # Clear TORCH_DEVICE to allow auto-detection
+        # Restore original CUDA_VISIBLE_DEVICES if it was set
+        if _original_cuda_visible is not None:
+            os.environ['CUDA_VISIBLE_DEVICES'] = _original_cuda_visible
+        elif 'CUDA_VISIBLE_DEVICES' in os.environ:
+            os.environ.pop('CUDA_VISIBLE_DEVICES')
         os.environ.pop('TORCH_DEVICE', None)
     
     try:
-        # Initialize Marker converter (will respect TORCH_DEVICE env var)
+        # Import Marker AFTER setting environment variables
+        # This ensures models load with the correct device settings
+        try:
+            from marker.converters.pdf import PdfConverter
+            from marker.models import create_model_dict
+            from marker.output import text_from_rendered
+        except ImportError:
+            console.print("[red]Error: marker-pdf not installed. Run: pip install marker-pdf[/red]")
+            return False
+        
+        # Suppress Marker's tqdm progress bars to avoid terminal clutter
+        # Save original tqdm and disable it
+        try:
+            from tqdm import tqdm
+            import tqdm as tqdm_module
+            # Monkey-patch tqdm to disable progress bars
+            original_tqdm = tqdm
+            def silent_tqdm(*args, **kwargs):
+                kwargs['disable'] = True
+                kwargs['file'] = open(os.devnull, 'w')  # Redirect to null
+                return original_tqdm(*args, **kwargs)
+            tqdm_module.tqdm = silent_tqdm
+        except:
+            pass  # If tqdm not available, continue anyway
+        
+        # Initialize Marker converter
         converter = PdfConverter(
             artifact_dict=create_model_dict(),
         )
@@ -105,6 +129,12 @@ def process_document(source_file: Path, md_file: Path, use_cpu: bool = False) ->
         # Convert document
         rendered = converter(str(source_file))
         text, _, images = text_from_rendered(rendered)
+        
+        # Restore original tqdm if we patched it
+        try:
+            tqdm_module.tqdm = original_tqdm
+        except:
+            pass
         
         # Save markdown
         md_file.write_text(text, encoding='utf-8')
@@ -203,6 +233,7 @@ def main():
             skipped.append(file_path)
     
     # Ask about processing mode (CPU vs GPU)
+    # IMPORTANT: Set this BEFORE any Marker imports
     use_cpu = False
     if documents_to_process:
         device_options = [
@@ -220,7 +251,7 @@ def main():
                     'device',
                     message="Choose processing device:",
                     choices=device_options,
-                    default=device_options[0],
+                    default=device_options[1],  # Default to CPU to avoid memory issues
                 )
             ]
             
@@ -233,6 +264,13 @@ def main():
             except KeyboardInterrupt:
                 console.print("\n[yellow]Cancelled by user[/yellow]")
                 sys.exit(0)
+        
+        # Set environment variables immediately after selection
+        # This must happen BEFORE Marker is imported
+        if use_cpu:
+            os.environ['CUDA_VISIBLE_DEVICES'] = ''
+            os.environ['TORCH_DEVICE'] = 'cpu'
+            console.print("[dim]CPU mode enabled - GPU will be hidden from Marker[/dim]")
     
     # If there are documents to process, ask user if they want to process all or select specific ones
     if documents_to_process:
