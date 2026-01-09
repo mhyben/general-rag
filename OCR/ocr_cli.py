@@ -86,15 +86,18 @@ def process_document(source_file: Path, md_file: Path, use_cpu: bool = False) ->
         md_file: Output markdown file path
         use_cpu: Force CPU mode to avoid GPU memory issues
     """
+    # Set device before importing/creating models
+    if use_cpu:
+        os.environ['TORCH_DEVICE'] = 'cpu'
+    elif 'TORCH_DEVICE' in os.environ and os.environ['TORCH_DEVICE'] == 'cpu':
+        # Keep CPU mode if already set
+        pass
+    else:
+        # Clear TORCH_DEVICE to allow auto-detection
+        os.environ.pop('TORCH_DEVICE', None)
+    
     try:
-        # Set device preference
-        device = 'cpu' if use_cpu else None
-        
-        # Initialize Marker converter
-        # Marker will use CPU if TORCH_DEVICE=cpu is set or if device is explicitly set
-        if use_cpu:
-            os.environ['TORCH_DEVICE'] = 'cpu'
-        
+        # Initialize Marker converter (will respect TORCH_DEVICE env var)
         converter = PdfConverter(
             artifact_dict=create_model_dict(),
         )
@@ -126,6 +129,7 @@ def process_document(source_file: Path, md_file: Path, use_cpu: bool = False) ->
         # If CUDA OOM and not already using CPU, suggest CPU mode
         if 'CUDA out of memory' in error_msg and not use_cpu:
             console.print(f"[yellow]  Tip: Try running with CPU mode to avoid GPU memory issues[/yellow]")
+            console.print(f"[yellow]  Run with: CUDA_VISIBLE_DEVICES=\"\" python ocr_cli.py[/yellow]")
         
         # Clear GPU cache on error
         try:
