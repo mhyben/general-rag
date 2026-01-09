@@ -17,6 +17,12 @@ except ImportError:
     sys.exit(1)
 
 try:
+    import inquirer
+except ImportError:
+    print("Error: inquirer library not installed. Run: pip install -r requirements.txt")
+    sys.exit(1)
+
+try:
     from marker.converters.pdf import PdfConverter
     from marker.models import create_model_dict
     from marker.output import text_from_rendered
@@ -145,6 +151,55 @@ def main():
         md_file = file_path.with_suffix('.md')
         if md_file.exists():
             skipped.append(file_path)
+    
+    # If there are documents to process, ask user if they want to process all or select specific ones
+    if documents_to_process:
+        if len(documents_to_process) > 1:
+            # Ask user if they want to process all or select specific documents
+            process_options = [
+                f"Process all {len(documents_to_process)} documents",
+                "Select specific documents to process"
+            ]
+            
+            questions = [
+                inquirer.List(
+                    'action',
+                    message="How would you like to proceed?",
+                    choices=process_options,
+                    default=process_options[0],
+                )
+            ]
+            
+            try:
+                answers = inquirer.prompt(questions)
+                if answers is None:
+                    raise KeyboardInterrupt()
+                
+                if answers['action'] == process_options[1]:
+                    # Let user select which documents to process
+                    file_choices = [f"{doc[0].name}" for doc in documents_to_process]
+                    
+                    questions = [
+                        inquirer.Checkbox(
+                            'files',
+                            message="Select documents to process (use space to select, enter to confirm)",
+                            choices=file_choices,
+                            default=file_choices,  # All selected by default
+                        )
+                    ]
+                    
+                    answers = inquirer.prompt(questions)
+                    if answers is None:
+                        raise KeyboardInterrupt()
+                    
+                    selected_files = set(answers['files'])
+                    documents_to_process = [
+                        doc for doc in documents_to_process 
+                        if doc[0].name in selected_files
+                    ]
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Cancelled by user[/yellow]")
+                sys.exit(0)
     
     # Process documents
     if documents_to_process:

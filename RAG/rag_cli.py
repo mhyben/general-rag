@@ -20,6 +20,12 @@ except ImportError:
     print("Error: rich library not installed. Run: pip install -r requirements.txt")
     sys.exit(1)
 
+try:
+    import inquirer
+except ImportError:
+    print("Error: inquirer library not installed. Run: pip install -r requirements.txt")
+    sys.exit(1)
+
 # Import RAG components
 from embedding_loader import EmbeddingLoader
 from agent_llm import AgentLLM
@@ -48,41 +54,43 @@ STRATEGY_MODULES = {
 console = Console()
 
 
-class InteractiveSelector:
-    """Interactive selector with cursor navigation."""
+def select_option(prompt: str, options: List[str], default: Optional[str] = None) -> int:
+    """
+    Interactive selection with cursor navigation using inquirer.
     
-    def __init__(self, console: Console):
-        self.console = console
+    Args:
+        prompt: Prompt text
+        options: List of option strings
+        default: Default option (if None, uses first option)
+        
+    Returns:
+        Index of selected option
+    """
+    if default is None and options:
+        default = options[0]
     
-    def select(self, prompt: str, options: List[str], default: int = 0) -> int:
-        """
-        Interactive selection with arrow keys.
-        Simplified version using rich Prompt for now.
-        """
-        self.console.print(f"\n[cyan]{prompt}[/cyan]")
+    questions = [
+        inquirer.List(
+            'choice',
+            message=prompt,
+            choices=options,
+            default=default,
+        )
+    ]
+    
+    try:
+        answers = inquirer.prompt(questions)
+        if answers is None:
+            # User cancelled (Ctrl+C)
+            raise KeyboardInterrupt()
         
-        # Display options
-        table = Table(box=box.SIMPLE, show_header=False)
-        for i, option in enumerate(options):
-            marker = "→" if i == default else " "
-            table.add_row(f"{marker} {i+1}. {option}")
-        
-        self.console.print(table)
-        
-        # Get selection
-        while True:
-            try:
-                choice = Prompt.ask(
-                    f"\nSelect option (1-{len(options)})",
-                    default=str(default + 1)
-                )
-                idx = int(choice) - 1
-                if 0 <= idx < len(options):
-                    return idx
-                else:
-                    self.console.print("[red]Invalid selection. Please try again.[/red]")
-            except (ValueError, KeyboardInterrupt):
-                self.console.print("[red]Invalid input. Please enter a number.[/red]")
+        selected = answers['choice']
+        return options.index(selected)
+    except KeyboardInterrupt:
+        raise
+    except Exception as e:
+        console.print(f"[red]Selection error: {str(e)}[/red]")
+        raise
 
 
 def get_documents_folder() -> Path:
@@ -172,12 +180,10 @@ def main():
         border_style="cyan"
     ))
     
-    selector = InteractiveSelector(console)
-    
     # Step 1: Select embedding model
     console.print("\n[bold]Step 1: Select Embedding Model[/bold]")
     popular_models = EmbeddingLoader.list_popular_models()
-    model_idx = selector.select("Choose an embedding model:", popular_models)
+    model_idx = select_option("Choose an embedding model:", popular_models)
     selected_model = popular_models[model_idx]
     
     console.print(f"[green]Selected: {selected_model}[/green]")
@@ -201,7 +207,7 @@ def main():
             console.print("[red]No Ollama models found. Please install models using: ollama pull <model_name>[/red]")
             sys.exit(1)
         
-        llm_idx = selector.select("Choose an Ollama model:", available_models)
+        llm_idx = select_option("Choose an Ollama model:", available_models)
         selected_llm = available_models[llm_idx]
         
         agent_llm.set_model(selected_llm)
@@ -241,7 +247,7 @@ def main():
         "11_fine_tuned_embeddings",
     ]
     
-    strategy_idx = selector.select("Choose a RAG strategy:", strategy_names)
+    strategy_idx = select_option("Choose a RAG strategy:", strategy_names)
     selected_strategy_key = strategy_keys[strategy_idx]
     selected_strategy_name = strategy_names[strategy_idx]
     

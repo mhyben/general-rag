@@ -1,3 +1,4 @@
 marker-pdf>=0.3.0
 rich>=13.0.0
+inquirer>=3.1.0
 
