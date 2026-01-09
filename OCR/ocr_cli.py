@@ -95,27 +95,21 @@ def process_document(source_file: Path, md_file: Path) -> bool:
             console.print("[red]Error: marker-pdf not installed. Run: pip install marker-pdf[/red]")
             return False
         
-        # Suppress Marker's tqdm progress bars to avoid terminal clutter
-        # Redirect tqdm output to null device
+        # Configure tqdm to update in place properly
+        # Ensure tqdm writes to stderr and uses proper terminal settings
         try:
             import tqdm
-            # Disable tqdm by redirecting to devnull
-            original_write = tqdm.tqdm.write
-            original_init = tqdm.tqdm.__init__
+            import sys
             
-            def silent_write(*args, **kwargs):
-                pass
-            
-            def silent_init(self, *args, **kwargs):
-                kwargs['disable'] = True
-                kwargs['file'] = open(os.devnull, 'w')
-                original_init(self, *args, **kwargs)
-            
-            tqdm.tqdm.write = silent_write
-            tqdm.tqdm.__init__ = silent_init
-            tqdm_patched = True
+            # Configure tqdm defaults for proper in-place updates
+            # Use stderr (default) and ensure it's a TTY
+            if hasattr(sys.stderr, 'isatty') and sys.stderr.isatty():
+                # Set tqdm to use stderr and update in place
+                tqdm.tqdm.file = sys.stderr
+                # Ensure dynamic_ncols is enabled for proper terminal width detection
+                tqdm.tqdm.dynamic_ncols = True
         except:
-            tqdm_patched = False
+            pass  # If tqdm not available, continue anyway
         
         # Initialize Marker converter
         converter = PdfConverter(
@@ -126,14 +120,7 @@ def process_document(source_file: Path, md_file: Path) -> bool:
         rendered = converter(str(source_file))
         text, _, images = text_from_rendered(rendered)
         
-        # Restore original tqdm if we patched it
-        if tqdm_patched:
-            try:
-                import tqdm
-                tqdm.tqdm.write = original_write
-                tqdm.tqdm.__init__ = original_init
-            except:
-                pass
+        # No need to restore - we didn't patch tqdm, just configured it
         
         # Save markdown
         md_file.write_text(text, encoding='utf-8')
