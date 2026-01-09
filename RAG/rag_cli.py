@@ -286,39 +286,60 @@ def main():
     
     console.print(f"[green]Using folder: {documents_folder}[/green]")
     
-    # Step 5: Configure chunking parameters
-    console.print("\n[bold]Step 5: Configure Chunking Parameters[/bold]")
+    # Step 5: Configure chunking parameters (optional for structure-aware chunking)
+    console.print("\n[bold]Step 5: Configure Chunking Parameters (Optional)[/bold]")
+    console.print("[dim]Structure-aware chunking uses document structure (headings, sections) to determine chunk boundaries.[/dim]")
+    console.print("[dim]These parameters are optional limits for very large sections.[/dim]\n")
     
-    chunk_size_options = ["300", "500", "800", "1000", "1500", "Custom"]
-    chunk_size_idx = select_option("Choose chunk size (characters):", chunk_size_options)
+    configure_options = ["Use defaults (structure-only, no size limits)", "Configure maximum chunk size"]
+    config_idx = select_option("Chunking configuration:", configure_options)
     
-    if chunk_size_options[chunk_size_idx] == "Custom":
-        chunk_size_str = Prompt.ask("Enter custom chunk size", default="500")
-        try:
-            chunk_size = int(chunk_size_str)
-        except ValueError:
-            console.print("[yellow]Invalid input, using default 500[/yellow]")
-            chunk_size = 500
+    max_chunk_size = None
+    overlap = None
+    
+    if config_idx == 1:  # User wants to configure
+        chunk_size_options = ["500", "800", "1000", "1500", "2000", "No limit", "Custom"]
+        chunk_size_idx = select_option("Maximum chunk size (characters, for very large sections):", chunk_size_options)
+        
+        if chunk_size_options[chunk_size_idx] == "No limit":
+            max_chunk_size = None
+        elif chunk_size_options[chunk_size_idx] == "Custom":
+            chunk_size_str = Prompt.ask("Enter custom maximum chunk size", default="1000")
+            try:
+                max_chunk_size = int(chunk_size_str) if chunk_size_str else None
+            except ValueError:
+                console.print("[yellow]Invalid input, using no limit[/yellow]")
+                max_chunk_size = None
+        else:
+            max_chunk_size = int(chunk_size_options[chunk_size_idx])
+        
+        # Overlap is rarely needed with structure-aware chunking
+        overlap_options = ["No overlap (recommended)", "50", "100", "150", "Custom"]
+        overlap_idx = select_option("Chunk overlap (usually not needed with structure-aware):", overlap_options)
+        
+        if overlap_options[overlap_idx] == "No overlap (recommended)":
+            overlap = None
+        elif overlap_options[overlap_idx] == "Custom":
+            overlap_str = Prompt.ask("Enter custom overlap", default="0")
+            try:
+                overlap = int(overlap_str) if overlap_str else None
+            except ValueError:
+                overlap = None
+        else:
+            overlap = int(overlap_options[overlap_idx])
+    
+    if max_chunk_size:
+        console.print(f"[green]Maximum chunk size: {max_chunk_size}[/green]")
     else:
-        chunk_size = int(chunk_size_options[chunk_size_idx])
+        console.print("[green]No chunk size limit (structure-only chunking)[/green]")
     
-    overlap_options = ["0", "50", "100", "150", "200", "Custom"]
-    overlap_idx = select_option("Choose chunk overlap (characters):", overlap_options)
-    
-    if overlap_options[overlap_idx] == "Custom":
-        overlap_str = Prompt.ask("Enter custom overlap", default="100")
-        try:
-            overlap = int(overlap_str)
-        except ValueError:
-            console.print("[yellow]Invalid input, using default 100[/yellow]")
-            overlap = 100
+    if overlap:
+        console.print(f"[green]Overlap: {overlap}[/green]")
     else:
-        overlap = int(overlap_options[overlap_idx])
-    
-    console.print(f"[green]Chunk size: {chunk_size}, Overlap: {overlap}[/green]")
+        console.print("[green]No overlap (natural structure boundaries)[/green]")
     
     # Initialize structure-aware chunker
-    chunker = StructureAwareChunker(chunk_size=chunk_size, overlap=overlap)
+    chunker = StructureAwareChunker(max_chunk_size=max_chunk_size, overlap=overlap)
     
     # Initialize vector store
     dimension = embedder.get_embedding_dimension()

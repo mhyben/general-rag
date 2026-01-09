@@ -19,16 +19,16 @@ class StructureAwareChunker:
     - Chunks at semantic boundaries rather than fixed sizes
     """
     
-    def __init__(self, chunk_size: int = 500, overlap: int = 100):
+    def __init__(self, max_chunk_size: Optional[int] = None, overlap: Optional[int] = None):
         """
         Initialize the structure-aware chunker.
         
         Args:
-            chunk_size: Target chunk size in characters
-            overlap: Overlap size between chunks in characters
+            max_chunk_size: Maximum chunk size in characters (optional, for very large sections)
+            overlap: Overlap size between chunks in characters (optional, rarely needed with structure-aware)
         """
-        self.chunk_size = chunk_size
-        self.overlap = overlap
+        self.max_chunk_size = max_chunk_size  # Used as a limit, not a target
+        self.overlap = overlap if overlap is not None else 0
         
         # Regex patterns for detecting document structure
         self.heading_patterns = [
@@ -210,8 +210,8 @@ class StructureAwareChunker:
         for para in paragraphs:
             para_size = len(para)
             
-            # If paragraph itself is larger than chunk_size, split it
-            if para_size > self.chunk_size:
+            # If paragraph itself is larger than max_chunk_size, split it (only if max_chunk_size is set)
+            if self.max_chunk_size and para_size > self.max_chunk_size:
                 # Save current chunk if any
                 if current_chunk:
                     chunk_text = '\n\n'.join(current_chunk)
@@ -229,8 +229,9 @@ class StructureAwareChunker:
                 para_chunks = self._split_large_paragraph(para, context, heading, source)
                 chunks.extend(para_chunks)
             else:
-                # Check if adding this paragraph would exceed chunk_size
-                if current_size + para_size + 2 > self.chunk_size and current_chunk:
+                # Check if adding this paragraph would exceed max_chunk_size (only if set)
+                # Otherwise, keep adding paragraphs to maintain semantic coherence
+                if self.max_chunk_size and current_size + para_size + 2 > self.max_chunk_size and current_chunk:
                     # Save current chunk
                     chunk_text = '\n\n'.join(current_chunk)
                     chunks.append({
@@ -241,12 +242,18 @@ class StructureAwareChunker:
                         'heading_level': heading['level']
                     })
                     
-                    # Start new chunk with overlap
-                    if self.overlap > 0 and current_chunk:
+                    # Start new chunk with optional overlap
+                    # Note: Overlap is less important with structure-aware chunking
+                    # since boundaries are natural, but can help with very large sections
+                    if self.overlap and self.overlap > 0 and current_chunk:
                         # Include last paragraph(s) for overlap
                         overlap_text = '\n\n'.join(current_chunk[-1:])
-                        current_chunk = [overlap_text] if len(overlap_text) <= self.overlap else []
-                        current_size = len(overlap_text) if current_chunk else 0
+                        if len(overlap_text) <= self.overlap:
+                            current_chunk = [overlap_text]
+                            current_size = len(overlap_text)
+                        else:
+                            current_chunk = []
+                            current_size = 0
                     else:
                         current_chunk = []
                         current_size = 0
@@ -280,7 +287,7 @@ class StructureAwareChunker:
         for sentence in sentences:
             sent_size = len(sentence)
             
-            if current_size + sent_size > self.chunk_size and current_chunk:
+            if self.max_chunk_size and current_size + sent_size > self.max_chunk_size and current_chunk:
                 chunk_text = ' '.join(current_chunk)
                 chunks.append({
                     'content': chunk_text,
@@ -290,11 +297,15 @@ class StructureAwareChunker:
                     'heading_level': heading['level']
                 })
                 
-                # Overlap handling
-                if self.overlap > 0:
+                # Optional overlap handling
+                if self.overlap and self.overlap > 0:
                     overlap_text = ' '.join(current_chunk[-2:]) if len(current_chunk) >= 2 else current_chunk[-1]
-                    current_chunk = [overlap_text] if len(overlap_text) <= self.overlap else []
-                    current_size = len(overlap_text) if current_chunk else 0
+                    if len(overlap_text) <= self.overlap:
+                        current_chunk = [overlap_text]
+                        current_size = len(overlap_text)
+                    else:
+                        current_chunk = []
+                        current_size = 0
                 else:
                     current_chunk = []
                     current_size = 0
@@ -329,8 +340,11 @@ class StructureAwareChunker:
         start = 0
         text_length = len(text)
         
+        # Use max_chunk_size if set, otherwise use a reasonable default for fallback
+        chunk_size = self.max_chunk_size if self.max_chunk_size else 1000
+        
         while start < text_length:
-            end = min(start + self.chunk_size, text_length)
+            end = min(start + chunk_size, text_length)
             
             # Try to break at sentence boundary
             if end < text_length:
