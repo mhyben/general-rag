@@ -5,10 +5,17 @@ All RAG strategies should inherit from this class.
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 import numpy as np
+import sys
+from pathlib import Path
 
-from ..embedding_loader import EmbeddingLoader
-from ..agent_llm import AgentLLM
-from ..vector_store import FAISSVectorStore
+# Add parent directory to path for imports when running as script
+_parent_dir = Path(__file__).parent.parent
+if str(_parent_dir) not in sys.path:
+    sys.path.insert(0, str(_parent_dir))
+
+from embedding_loader import EmbeddingLoader
+from agent_llm import AgentLLM
+from vector_store import FAISSVectorStore
 
 
 class BaseRAGStrategy(ABC):
