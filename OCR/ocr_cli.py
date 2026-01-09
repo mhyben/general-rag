@@ -98,26 +98,26 @@ def process_document(source_file: Path, md_file: Path) -> bool:
         # Configure tqdm to update in place properly
         # The issue is likely that tqdm needs proper terminal settings
         try:
-            import tqdm
+            from tqdm import tqdm
             import sys
             import os
             
             # Ensure tqdm uses stderr (default) and can detect terminal properly
             # Set environment variable to help tqdm detect terminal width
-            if 'COLUMNS' not in os.environ:
-                try:
-                    import shutil
-                    columns = shutil.get_terminal_size().columns
-                    os.environ['COLUMNS'] = str(columns)
-                except:
-                    pass
+            # if 'COLUMNS' not in os.environ:
+            #     try:
+            #         import shutil
+            #         columns = shutil.get_terminal_size().columns
+            #         os.environ['COLUMNS'] = str(columns)
+            #     except:
+            #         pass
             
-            # Configure tqdm to use stderr explicitly and enable dynamic width
-            # This helps with in-place updates
-            tqdm.tqdm.file = sys.stderr
-            # Enable dynamic column width for better terminal compatibility
-            if hasattr(tqdm.tqdm, 'dynamic_ncols'):
-                tqdm.tqdm.dynamic_ncols = True
+            # # Configure tqdm to use stderr explicitly and enable dynamic width
+            # # This helps with in-place updates
+            # tqdm.tqdm.file = sys.stderr
+            # # Enable dynamic column width for better terminal compatibility
+            # if hasattr(tqdm.tqdm, 'dynamic_ncols'):
+            #     tqdm.tqdm.dynamic_ncols = True
         except:
             pass  # If tqdm not available, continue anyway
         

@@ -30,6 +30,7 @@ except ImportError:
 from embedding_loader import EmbeddingLoader
 from agent_llm import AgentLLM
 from vector_store import FAISSVectorStore
+from structure_aware_chunking import StructureAwareChunker
 
 # Import all strategies using importlib for modules with numbers
 import importlib
@@ -108,15 +109,16 @@ def find_markdown_files(folder: Path) -> List[Path]:
     return list(folder.glob("*.md"))
 
 
-def load_documents(vector_store: FAISSVectorStore, embedder: EmbeddingLoader, folder: Path):
-    """Load markdown documents into the vector store."""
+def load_documents(vector_store: FAISSVectorStore, embedder: EmbeddingLoader, 
+                  folder: Path, chunker: StructureAwareChunker):
+    """Load markdown documents into the vector store using structure-aware chunking."""
     md_files = find_markdown_files(folder)
     
     if not md_files:
         console.print(f"[yellow]No markdown files found in {folder}[/yellow]")
         return
     
-    console.print(f"[cyan]Loading {len(md_files)} document(s)...[/cyan]")
+    console.print(f"[cyan]Loading {len(md_files)} document(s) with structure-aware chunking...[/cyan]")
     
     all_chunks = []
     all_metadatas = []
@@ -125,26 +127,31 @@ def load_documents(vector_store: FAISSVectorStore, embedder: EmbeddingLoader, fo
         try:
             content = md_file.read_text(encoding='utf-8')
             
-            # Simple chunking (500 chars with overlap)
-            chunk_size = 500
-            overlap = 100
-            
-            chunks = []
-            start = 0
-            while start < len(content):
-                end = start + chunk_size
-                chunk = content[start:end]
-                chunks.append(chunk)
-                start = end - overlap
+            # Use structure-aware chunking
+            chunk_data = chunker.chunk_document(content, source=md_file.name)
             
             # Create metadata for each chunk
-            for i, chunk in enumerate(chunks):
-                all_chunks.append(chunk)
+            for i, chunk_info in enumerate(chunk_data):
+                chunk_text = chunk_info['content']
+                
+                # Add context to chunk text if available
+                if chunk_info.get('context'):
+                    contextualized_chunk = f"[Context: {chunk_info['context']}]\n\n{chunk_text}"
+                elif chunk_info.get('heading'):
+                    contextualized_chunk = f"[Section: {chunk_info['heading']}]\n\n{chunk_text}"
+                else:
+                    contextualized_chunk = chunk_text
+                
+                all_chunks.append(contextualized_chunk)
                 all_metadatas.append({
-                    'content': chunk,
+                    'content': chunk_text,  # Store original content
+                    'contextualized_content': contextualized_chunk,  # Store with context
                     'source': md_file.name,
                     'chunk_id': i,
-                    'file_path': str(md_file)
+                    'file_path': str(md_file),
+                    'context': chunk_info.get('context', ''),
+                    'heading': chunk_info.get('heading', ''),
+                    'heading_level': chunk_info.get('heading_level', 0)
                 })
         except Exception as e:
             console.print(f"[red]Error loading {md_file.name}: {str(e)}[/red]")
