@@ -193,7 +193,16 @@ def main():
         embedder = EmbeddingLoader(selected_model)
         console.print("[green]✓ Embedding model loaded[/green]")
     except Exception as e:
-        console.print(f"[red]Failed to load embedding model: {str(e)}[/red]")
+        error_msg = str(e)
+        console.print(f"[red]Failed to load embedding model: {error_msg}[/red]")
+        
+        # Check for PyTorch CUDA timing error
+        if "fast_1 >= fast_0" in error_msg or "INTERNAL ASSERT FAILED" in error_msg:
+            console.print("\n[yellow]PyTorch CUDA timing error detected![/yellow]")
+            console.print("[yellow]Try one of these solutions:[/yellow]")
+            console.print("  1. Run with CPU-only: [cyan]export CUDA_VISIBLE_DEVICES=\"\" && python rag_cli.py[/cyan]")
+            console.print("  2. See TROUBLESHOOTING.md for more solutions")
+        
         sys.exit(1)
     
     # Step 2: Select Ollama LLM

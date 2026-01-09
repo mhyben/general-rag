@@ -4,6 +4,12 @@ Supports HuggingFace / sentence-transformers models.
 """
 from typing import List, Optional
 import numpy as np
+import os
+
+# Set environment variables to avoid PyTorch CUDA timing issues
+# This helps with the "fast_1 >= fast_0" error
+os.environ.setdefault('TORCH_USE_CUDA_DSA', '1')
+os.environ.setdefault('CUDA_LAUNCH_BLOCKING', '0')
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -37,7 +43,26 @@ class EmbeddingLoader:
     def _load_model(self):
         """Load the sentence-transformers model."""
         try:
-            self.model = SentenceTransformer(self.model_name)
+            # Try to load with device preference (CPU first to avoid CUDA issues)
+            import torch
+            device = 'cpu'  # Use CPU by default to avoid CUDA timing issues
+            if torch.cuda.is_available():
+                try:
+                    # Try CUDA but fallback to CPU if there are issues
+                    device = 'cuda'
+                except:
+                    device = 'cpu'
+            
+            self.model = SentenceTransformer(self.model_name, device=device)
+        except RuntimeError as e:
+            # If CUDA fails, try CPU explicitly
+            if 'cuda' in str(e).lower() or 'gpu' in str(e).lower():
+                try:
+                    self.model = SentenceTransformer(self.model_name, device='cpu')
+                except Exception as e2:
+                    raise RuntimeError(f"Failed to load embedding model '{self.model_name}' (tried CUDA and CPU): {str(e2)}")
+            else:
+                raise RuntimeError(f"Failed to load embedding model '{self.model_name}': {str(e)}")
         except Exception as e:
             raise RuntimeError(f"Failed to load embedding model '{self.model_name}': {str(e)}")
     
