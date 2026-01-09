@@ -71,7 +71,7 @@ def find_documents(documents_folder: Path) -> List[Tuple[Path, Path]]:
     return documents
 
 
-def process_document(source_file: Path, md_file: Path, use_cpu: bool = False) -> bool:
+def process_document(source_file: Path, md_file: Path) -> bool:
     """
     Convert a document to Markdown using Marker.
     Returns True if successful, False otherwise.
@@ -79,21 +79,10 @@ def process_document(source_file: Path, md_file: Path, use_cpu: bool = False) ->
     Args:
         source_file: Source document path
         md_file: Output markdown file path
-        use_cpu: Force CPU mode to avoid GPU memory issues
+    
+    Note: Environment variables (CUDA_VISIBLE_DEVICES, TORCH_DEVICE) should be
+    set before calling this function to control device selection.
     """
-    # Set device environment variables BEFORE importing Marker
-    # This is critical - Marker reads these at import time
-    if use_cpu:
-        # Hide GPU completely
-        os.environ['CUDA_VISIBLE_DEVICES'] = ''
-        os.environ['TORCH_DEVICE'] = 'cpu'
-    else:
-        # Restore original CUDA_VISIBLE_DEVICES if it was set
-        if _original_cuda_visible is not None:
-            os.environ['CUDA_VISIBLE_DEVICES'] = _original_cuda_visible
-        elif 'CUDA_VISIBLE_DEVICES' in os.environ:
-            os.environ.pop('CUDA_VISIBLE_DEVICES')
-        os.environ.pop('TORCH_DEVICE', None)
     
     try:
         # Import Marker AFTER setting environment variables
@@ -107,19 +96,26 @@ def process_document(source_file: Path, md_file: Path, use_cpu: bool = False) ->
             return False
         
         # Suppress Marker's tqdm progress bars to avoid terminal clutter
-        # Save original tqdm and disable it
+        # Redirect tqdm output to null device
         try:
-            from tqdm import tqdm
-            import tqdm as tqdm_module
-            # Monkey-patch tqdm to disable progress bars
-            original_tqdm = tqdm
-            def silent_tqdm(*args, **kwargs):
+            import tqdm
+            # Disable tqdm by redirecting to devnull
+            original_write = tqdm.tqdm.write
+            original_init = tqdm.tqdm.__init__
+            
+            def silent_write(*args, **kwargs):
+                pass
+            
+            def silent_init(self, *args, **kwargs):
                 kwargs['disable'] = True
-                kwargs['file'] = open(os.devnull, 'w')  # Redirect to null
-                return original_tqdm(*args, **kwargs)
-            tqdm_module.tqdm = silent_tqdm
+                kwargs['file'] = open(os.devnull, 'w')
+                original_init(self, *args, **kwargs)
+            
+            tqdm.tqdm.write = silent_write
+            tqdm.tqdm.__init__ = silent_init
+            tqdm_patched = True
         except:
-            pass  # If tqdm not available, continue anyway
+            tqdm_patched = False
         
         # Initialize Marker converter
         converter = PdfConverter(
@@ -131,22 +127,24 @@ def process_document(source_file: Path, md_file: Path, use_cpu: bool = False) ->
         text, _, images = text_from_rendered(rendered)
         
         # Restore original tqdm if we patched it
-        try:
-            tqdm_module.tqdm = original_tqdm
-        except:
-            pass
+        if tqdm_patched:
+            try:
+                import tqdm
+                tqdm.tqdm.write = original_write
+                tqdm.tqdm.__init__ = original_init
+            except:
+                pass
         
         # Save markdown
         md_file.write_text(text, encoding='utf-8')
         
-        # Clear GPU cache if using CUDA
-        if not use_cpu:
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except:
-                pass
+        # Clear GPU cache
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except:
+            pass
         
         # Force garbage collection
         gc.collect()
@@ -156,8 +154,8 @@ def process_document(source_file: Path, md_file: Path, use_cpu: bool = False) ->
         error_msg = str(e)
         console.print(f"[red]Error processing {source_file.name}: {error_msg[:200]}...[/red]")
         
-        # If CUDA OOM and not already using CPU, suggest CPU mode
-        if 'CUDA out of memory' in error_msg and not use_cpu:
+        # If CUDA OOM, suggest CPU mode
+        if 'CUDA out of memory' in error_msg:
             console.print(f"[yellow]  Tip: Try running with CPU mode to avoid GPU memory issues[/yellow]")
             console.print(f"[yellow]  Run with: CUDA_VISIBLE_DEVICES=\"\" python ocr_cli.py[/yellow]")
         
@@ -337,7 +335,7 @@ def main():
             for source_file, md_file in documents_to_process:
                 task = progress.add_task(f"Processing {source_file.name}...", total=None)
                 
-                success = process_document(source_file, md_file, use_cpu=use_cpu)
+                success = process_document(source_file, md_file)
                 
                 if success:
                     processed.append(source_file)
