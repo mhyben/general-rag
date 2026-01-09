@@ -6,6 +6,13 @@ import os
 import sys
 from pathlib import Path
 from typing import List, Tuple
+import gc
+
+# Set environment variables to reduce GPU memory usage
+os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
+# Force CPU if CUDA_VISIBLE_DEVICES is set to empty
+if os.environ.get('CUDA_VISIBLE_DEVICES') == '':
+    os.environ.setdefault('TORCH_DEVICE', 'cpu')
 
 try:
     from rich.console import Console
@@ -69,13 +76,25 @@ def find_documents(documents_folder: Path) -> List[Tuple[Path, Path]]:
     return documents
 
 
-def process_document(source_file: Path, md_file: Path) -> bool:
+def process_document(source_file: Path, md_file: Path, use_cpu: bool = False) -> bool:
     """
     Convert a document to Markdown using Marker.
     Returns True if successful, False otherwise.
+    
+    Args:
+        source_file: Source document path
+        md_file: Output markdown file path
+        use_cpu: Force CPU mode to avoid GPU memory issues
     """
     try:
+        # Set device preference
+        device = 'cpu' if use_cpu else None
+        
         # Initialize Marker converter
+        # Marker will use CPU if TORCH_DEVICE=cpu is set or if device is explicitly set
+        if use_cpu:
+            os.environ['TORCH_DEVICE'] = 'cpu'
+        
         converter = PdfConverter(
             artifact_dict=create_model_dict(),
         )
@@ -87,9 +106,36 @@ def process_document(source_file: Path, md_file: Path) -> bool:
         # Save markdown
         md_file.write_text(text, encoding='utf-8')
         
+        # Clear GPU cache if using CUDA
+        if not use_cpu:
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except:
+                pass
+        
+        # Force garbage collection
+        gc.collect()
+        
         return True
     except Exception as e:
-        console.print(f"[red]Error processing {source_file.name}: {str(e)}[/red]")
+        error_msg = str(e)
+        console.print(f"[red]Error processing {source_file.name}: {error_msg[:200]}...[/red]")
+        
+        # If CUDA OOM and not already using CPU, suggest CPU mode
+        if 'CUDA out of memory' in error_msg and not use_cpu:
+            console.print(f"[yellow]  Tip: Try running with CPU mode to avoid GPU memory issues[/yellow]")
+        
+        # Clear GPU cache on error
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except:
+            pass
+        
+        gc.collect()
         return False
 
 
@@ -152,6 +198,38 @@ def main():
         if md_file.exists():
             skipped.append(file_path)
     
+    # Ask about processing mode (CPU vs GPU)
+    use_cpu = False
+    if documents_to_process:
+        device_options = [
+            "Use GPU (faster, requires GPU memory)",
+            "Use CPU (slower, no GPU memory required)"
+        ]
+        
+        # Check if CUDA_VISIBLE_DEVICES is set to empty (CPU mode)
+        if os.environ.get('CUDA_VISIBLE_DEVICES') == '':
+            use_cpu = True
+            console.print("[yellow]CPU mode detected (CUDA_VISIBLE_DEVICES=\"\")[/yellow]")
+        else:
+            questions = [
+                inquirer.List(
+                    'device',
+                    message="Choose processing device:",
+                    choices=device_options,
+                    default=device_options[0],
+                )
+            ]
+            
+            try:
+                answers = inquirer.prompt(questions)
+                if answers is None:
+                    raise KeyboardInterrupt()
+                
+                use_cpu = (answers['device'] == device_options[1])
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Cancelled by user[/yellow]")
+                sys.exit(0)
+    
     # If there are documents to process, ask user if they want to process all or select specific ones
     if documents_to_process:
         if len(documents_to_process) > 1:
@@ -206,6 +284,9 @@ def main():
         console.print(f"[yellow]Found {len(documents_to_process)} document(s) to process...[/yellow]")
         console.print()
         
+        device_mode = "CPU" if use_cpu else "GPU"
+        console.print(f"[dim]Processing mode: {device_mode}[/dim]\n")
+        
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -214,7 +295,7 @@ def main():
             for source_file, md_file in documents_to_process:
                 task = progress.add_task(f"Processing {source_file.name}...", total=None)
                 
-                success = process_document(source_file, md_file)
+                success = process_document(source_file, md_file, use_cpu=use_cpu)
                 
                 if success:
                     processed.append(source_file)
@@ -222,6 +303,16 @@ def main():
                     failed.append(source_file)
                 
                 progress.remove_task(task)
+                
+                # Clear memory between documents
+                gc.collect()
+                if not use_cpu:
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except:
+                        pass
     else:
         console.print("[green]No documents to process. All documents already have markdown versions.[/green]")
         console.print()
