@@ -25,35 +25,23 @@ from embedding_loader import EmbeddingLoader
 from agent_llm import AgentLLM
 from vector_store import FAISSVectorStore
 
-# Import all strategies
+# Import all strategies using importlib for modules with numbers
+import importlib
 from strategies.base_strategy import BaseRAGStrategy
-from strategies import (
-    reranking as reranking_module,
-    agentic_rag as agentic_rag_module,
-    knowledge_graphs as knowledge_graphs_module,
-    contextual_retrieval as contextual_retrieval_module,
-    query_expansion as query_expansion_module,
-    multi_query_rag as multi_query_rag_module,
-    context_aware_chunking as context_aware_chunking_module,
-    late_chunking as late_chunking_module,
-    hierarchical_rag as hierarchical_rag_module,
-    self_reflective_rag as self_reflective_rag_module,
-    fine_tuned_embeddings as fine_tuned_embeddings_module,
-)
 
-# Map strategy keys to classes
-STRATEGY_CLASSES = {
-    "01_reranking": reranking_module.RerankingStrategy,
-    "02_agentic_rag": agentic_rag_module.AgenticRAGStrategy,
-    "03_knowledge_graphs": knowledge_graphs_module.KnowledgeGraphsStrategy,
-    "04_contextual_retrieval": contextual_retrieval_module.ContextualRetrievalStrategy,
-    "05_query_expansion": query_expansion_module.QueryExpansionStrategy,
-    "06_multi_query_rag": multi_query_rag_module.MultiQueryRAGStrategy,
-    "07_context_aware_chunking": context_aware_chunking_module.ContextAwareChunkingStrategy,
-    "08_late_chunking": late_chunking_module.LateChunkingStrategy,
-    "09_hierarchical_rag": hierarchical_rag_module.HierarchicalRAGStrategy,
-    "10_self_reflective_rag": self_reflective_rag_module.SelfReflectiveRAGStrategy,
-    "11_fine_tuned_embeddings": fine_tuned_embeddings_module.FineTunedEmbeddingsStrategy,
+# Map strategy keys to module names and class names
+STRATEGY_MODULES = {
+    "01_reranking": ("strategies.01_reranking", "RerankingStrategy"),
+    "02_agentic_rag": ("strategies.02_agentic_rag", "AgenticRAGStrategy"),
+    "03_knowledge_graphs": ("strategies.03_knowledge_graphs", "KnowledgeGraphsStrategy"),
+    "04_contextual_retrieval": ("strategies.04_contextual_retrieval", "ContextualRetrievalStrategy"),
+    "05_query_expansion": ("strategies.05_query_expansion", "QueryExpansionStrategy"),
+    "06_multi_query_rag": ("strategies.06_multi_query_rag", "MultiQueryRAGStrategy"),
+    "07_context_aware_chunking": ("strategies.07_context_aware_chunking", "ContextAwareChunkingStrategy"),
+    "08_late_chunking": ("strategies.08_late_chunking", "LateChunkingStrategy"),
+    "09_hierarchical_rag": ("strategies.09_hierarchical_rag", "HierarchicalRAGStrategy"),
+    "10_self_reflective_rag": ("strategies.10_self_reflective_rag", "SelfReflectiveRAGStrategy"),
+    "11_fine_tuned_embeddings": ("strategies.11_fine_tuned_embeddings", "FineTunedEmbeddingsStrategy"),
 }
 
 
@@ -165,7 +153,15 @@ def load_documents(vector_store: FAISSVectorStore, embedder: EmbeddingLoader, fo
 
 def get_strategy_class(name: str) -> type:
     """Get strategy class by name."""
-    return STRATEGY_CLASSES.get(name)
+    if name not in STRATEGY_MODULES:
+        raise ValueError(f"Unknown strategy: {name}")
+    
+    module_name, class_name = STRATEGY_MODULES[name]
+    try:
+        module = importlib.import_module(module_name)
+        return getattr(module, class_name)
+    except (ImportError, AttributeError) as e:
+        raise RuntimeError(f"Failed to load strategy '{name}': {str(e)}")
 
 
 def main():
