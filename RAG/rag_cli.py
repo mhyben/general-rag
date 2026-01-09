@@ -286,12 +286,46 @@ def main():
     
     console.print(f"[green]Using folder: {documents_folder}[/green]")
     
+    # Step 5: Configure chunking parameters
+    console.print("\n[bold]Step 5: Configure Chunking Parameters[/bold]")
+    
+    chunk_size_options = ["300", "500", "800", "1000", "1500", "Custom"]
+    chunk_size_idx = select_option("Choose chunk size (characters):", chunk_size_options)
+    
+    if chunk_size_options[chunk_size_idx] == "Custom":
+        chunk_size_str = Prompt.ask("Enter custom chunk size", default="500")
+        try:
+            chunk_size = int(chunk_size_str)
+        except ValueError:
+            console.print("[yellow]Invalid input, using default 500[/yellow]")
+            chunk_size = 500
+    else:
+        chunk_size = int(chunk_size_options[chunk_size_idx])
+    
+    overlap_options = ["0", "50", "100", "150", "200", "Custom"]
+    overlap_idx = select_option("Choose chunk overlap (characters):", overlap_options)
+    
+    if overlap_options[overlap_idx] == "Custom":
+        overlap_str = Prompt.ask("Enter custom overlap", default="100")
+        try:
+            overlap = int(overlap_str)
+        except ValueError:
+            console.print("[yellow]Invalid input, using default 100[/yellow]")
+            overlap = 100
+    else:
+        overlap = int(overlap_options[overlap_idx])
+    
+    console.print(f"[green]Chunk size: {chunk_size}, Overlap: {overlap}[/green]")
+    
+    # Initialize structure-aware chunker
+    chunker = StructureAwareChunker(chunk_size=chunk_size, overlap=overlap)
+    
     # Initialize vector store
     dimension = embedder.get_embedding_dimension()
     vector_store = FAISSVectorStore(dimension)
     
-    # Load documents
-    load_documents(vector_store, embedder, documents_folder)
+    # Load documents with structure-aware chunking
+    load_documents(vector_store, embedder, documents_folder, chunker)
     
     if vector_store.get_size() == 0:
         console.print("[red]No documents loaded. Exiting.[/red]")
