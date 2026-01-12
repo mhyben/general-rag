@@ -15,7 +15,7 @@ For our managed API or on-prem document intelligence solution, check out [our pl
 
 ## Performance
 
-<img src="data/images/overall.png" width="800px"/>
+<img src="images/overall.png" width="800px"/>
 
 Marker benchmarks favorably compared to cloud services like Llamaparse and Mathpix, as well as other open source tools.
 
@@ -29,7 +29,7 @@ For the highest accuracy, pass the `--use_llm` flag to use an LLM alongside mark
 
 Here is a table benchmark comparing marker, gemini flash alone, and marker with use_llm:
 
-<img src="data/images/table.png" width="400px"/>
+<img src="images/table.png" width="400px"/>
 
 As you can see, the use_llm mode offers higher accuracy than marker or gemini alone.
 
@@ -461,7 +461,7 @@ We created a [benchmark set](https://huggingface.co/datasets/datalab-to/marker_b
 
 Benchmarks were run on an H100 for markjer and docling - llamaparse and mathpix used their cloud services.  We can also look at it by document type:
 
-<img src="data/images/per_doc.png" width="1000px"/>
+<img src="images/per_doc.png" width="1000px"/>
 
 | Document Type        | Marker heuristic | Marker LLM | Llamaparse Heuristic | Llamaparse LLM | Mathpix Heuristic | Mathpix LLM | Docling Heuristic | Docling LLM |
 |----------------------|------------------|------------|----------------------|----------------|-------------------|-------------|-------------------|-------------|

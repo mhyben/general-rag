@@ -38,7 +38,7 @@ ENV/
 Thumbs.db
 
 # Project specific
-documents/*.md
+documents/
 *.db
 *.index
 faiss_index/

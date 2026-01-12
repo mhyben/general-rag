@@ -111,7 +111,7 @@ def find_markdown_files(folder: Path) -> List[Path]:
 
 def load_documents(vector_store: FAISSVectorStore, embedder: EmbeddingLoader, 
                   folder: Path, chunker: StructureAwareChunker):
-    """Load markdown documents into the vector store using structure-aware chunking."""
+    """Load Markdown documents into the vector store using structure-aware chunking."""
     md_files = find_markdown_files(folder)
     
     if not md_files:
@@ -295,7 +295,6 @@ def main():
     config_idx = select_option("Chunking configuration:", configure_options)
     
     max_chunk_size = None
-    overlap = None
     
     if config_idx == 1:  # User wants to configure
         chunk_size_options = ["500", "800", "1000", "1500", "2000", "No limit", "Custom"]
@@ -313,33 +312,13 @@ def main():
         else:
             max_chunk_size = int(chunk_size_options[chunk_size_idx])
         
-        # Overlap is rarely needed with structure-aware chunking
-        overlap_options = ["No overlap (recommended)", "50", "100", "150", "Custom"]
-        overlap_idx = select_option("Chunk overlap (usually not needed with structure-aware):", overlap_options)
-        
-        if overlap_options[overlap_idx] == "No overlap (recommended)":
-            overlap = None
-        elif overlap_options[overlap_idx] == "Custom":
-            overlap_str = Prompt.ask("Enter custom overlap", default="0")
-            try:
-                overlap = int(overlap_str) if overlap_str else None
-            except ValueError:
-                overlap = None
-        else:
-            overlap = int(overlap_options[overlap_idx])
-    
     if max_chunk_size:
         console.print(f"[green]Maximum chunk size: {max_chunk_size}[/green]")
     else:
         console.print("[green]No chunk size limit (structure-only chunking)[/green]")
     
-    if overlap:
-        console.print(f"[green]Overlap: {overlap}[/green]")
-    else:
-        console.print("[green]No overlap (natural structure boundaries)[/green]")
-    
     # Initialize structure-aware chunker
-    chunker = StructureAwareChunker(max_chunk_size=max_chunk_size, overlap=overlap)
+    chunker = StructureAwareChunker(max_chunk_size=max_chunk_size)
     
     # Initialize vector store
     dimension = embedder.get_embedding_dimension()
