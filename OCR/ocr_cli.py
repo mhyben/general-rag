@@ -2,13 +2,10 @@
 """
 Interactive OCR CLI application using Docling to convert documents to Markdown.
 """
-import os
-import re
+import gc
 import sys
-import warnings
 from pathlib import Path
 from typing import List, Tuple
-import gc
 
 try:
     from rich.console import Console
