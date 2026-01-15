@@ -22,9 +22,6 @@ except ImportError:
     print("Error: inquirer library not installed. Run: pip install -r requirements.txt")
     sys.exit(1)
 
-# Docling imports will be done lazily when needed
-
-
 console = Console()
 
 
