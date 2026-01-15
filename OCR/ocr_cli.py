@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
 """
-Interactive OCR CLI application using Marker to convert documents to Markdown.
+Interactive OCR CLI application using Docling to convert documents to Markdown.
 """
 import os
+import re
 import sys
+import warnings
 from pathlib import Path
 from typing import List, Tuple
 import gc
-
-# Set environment variables to reduce GPU memory usage
-os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
-
-# Store original CUDA_VISIBLE_DEVICES to restore later if needed
-_original_cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES')
 
 try:
     from rich.console import Console
@@ -29,8 +25,7 @@ except ImportError:
     print("Error: inquirer library not installed. Run: pip install -r requirements.txt")
     sys.exit(1)
 
-# Marker imports will be done lazily after device selection
-# This is critical to ensure environment variables are set before models load
+# Docling imports will be done lazily when needed
 
 
 console = Console()
@@ -73,57 +68,31 @@ def find_documents(documents_folder: Path) -> List[Tuple[Path, Path]]:
 
 def process_document(source_file: Path, md_file: Path) -> bool:
     """
-    Convert a document to Markdown using Marker.
+    Convert a document to Markdown using Docling.
     Returns True if successful, False otherwise.
     
     Args:
         source_file: Source document path
         md_file: Output markdown file path
-    
-    Note: Environment variables (CUDA_VISIBLE_DEVICES, TORCH_DEVICE) should be
-    set before calling this function to control device selection.
     """
-    
+
     try:
-        # Import Marker AFTER setting environment variables
-        # This ensures models load with the correct device settings
+        # Import Docling converter
         try:
-            from marker.converters.pdf import PdfConverter
-            from marker.models import create_model_dict
-            from marker.output import text_from_rendered
+            from docling.document_converter import DocumentConverter
         except ImportError:
-            console.print("[red]Error: marker-pdf not installed. Run: pip install marker-pdf[/red]")
+            console.print("[red]Error: docling not installed. Run: pip install docling[/red]")
             return False
         
-        # Configure tqdm to update in place properly
-        # The issue is likely that tqdm needs proper terminal settings
-        try:
-            from tqdm.contrib.rich import tqdm
-            import sys
-            import os
-            
-        except:
-            pass  # If tqdm not available, continue anyway
-        
-        # Initialize Marker converter
-        converter = PdfConverter(
-            artifact_dict=create_model_dict(),
-        )
-        
-        # Convert document
-        rendered = converter(str(source_file))
-        text, _, images = text_from_rendered(rendered)
-        
+        # Initialize Docling converter
+        converter = DocumentConverter()
+
+        # Convert document to markdown
+        result = converter.convert(str(source_file))
+        markdown_content = result.document.export_to_markdown()
+
         # Save markdown
-        md_file.write_text(text, encoding='utf-8')
-        
-        # Clear GPU cache
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except:
-            pass
+        md_file.write_text(markdown_content, encoding='utf-8')
         
         # Force garbage collection
         gc.collect()
@@ -132,20 +101,7 @@ def process_document(source_file: Path, md_file: Path) -> bool:
     except Exception as e:
         error_msg = str(e)
         console.print(f"[red]Error processing {source_file.name}: {error_msg[:200]}...[/red]")
-        
-        # If CUDA OOM, suggest CPU mode
-        if 'CUDA out of memory' in error_msg:
-            console.print(f"[yellow]  Tip: Try running with CPU mode to avoid GPU memory issues[/yellow]")
-            console.print(f"[yellow]  Run with: CUDA_VISIBLE_DEVICES=\"\" python ocr_cli.py[/yellow]")
-        
-        # Clear GPU cache on error
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except:
-            pass
-        
+
         gc.collect()
         return False
 
@@ -177,7 +133,7 @@ def main():
     """Main CLI application."""
     console.print(Panel.fit(
         "[bold cyan]OCR Document Converter[/bold cyan]\n"
-        "Converts documents to Markdown using Marker",
+        "Converts documents to Markdown using Docling",
         border_style="cyan"
     ))
     console.print()
@@ -209,45 +165,7 @@ def main():
         if md_file.exists():
             skipped.append(file_path)
     
-    # Ask about processing mode (CPU vs GPU)
-    # IMPORTANT: Set this BEFORE any Marker imports
-    use_cpu = False
-    if documents_to_process:
-        device_options = [
-            "Use GPU (faster, requires GPU memory)",
-            "Use CPU (slower, no GPU memory required)"
-        ]
-        
-        # Check if CUDA_VISIBLE_DEVICES is set to empty (CPU mode)
-        if os.environ.get('CUDA_VISIBLE_DEVICES') == '':
-            use_cpu = True
-            console.print("[yellow]CPU mode detected (CUDA_VISIBLE_DEVICES=\"\")[/yellow]")
-        else:
-            questions = [
-                inquirer.List(
-                    'device',
-                    message="Choose processing device:",
-                    choices=device_options,
-                    default=device_options[1],  # Default to CPU to avoid memory issues
-                )
-            ]
-            
-            try:
-                answers = inquirer.prompt(questions)
-                if answers is None:
-                    raise KeyboardInterrupt()
-                
-                use_cpu = (answers['device'] == device_options[1])
-            except KeyboardInterrupt:
-                console.print("\n[yellow]Cancelled by user[/yellow]")
-                sys.exit(0)
-        
-        # Set environment variables immediately after selection
-        # This must happen BEFORE Marker is imported
-        if use_cpu:
-            os.environ['CUDA_VISIBLE_DEVICES'] = ''
-            os.environ['TORCH_DEVICE'] = 'cpu'
-            console.print("[dim]CPU mode enabled - GPU will be hidden from Marker[/dim]")
+
     
     # If there are documents to process, ask user if they want to process all or select specific ones
     if documents_to_process:
@@ -284,12 +202,13 @@ def main():
                             default=file_choices,  # All selected by default
                         )
                     ]
-                    
+
                     answers = inquirer.prompt(questions)
                     if answers is None:
                         raise KeyboardInterrupt()
                     
                     selected_files = set(answers['files'])
+                    print(selected_files)
                     documents_to_process = [
                         doc for doc in documents_to_process 
                         if doc[0].name in selected_files
@@ -303,7 +222,7 @@ def main():
         console.print(f"[yellow]Found {len(documents_to_process)} document(s) to process...[/yellow]")
         console.print()
         
-        device_mode = "CPU" if use_cpu else "GPU"
+        device_mode = "CPU"
         console.print(f"[dim]Processing mode: {device_mode}[/dim]\n")
         
         with Progress(
@@ -325,13 +244,6 @@ def main():
                 
                 # Clear memory between documents
                 gc.collect()
-                if not use_cpu:
-                    try:
-                        import torch
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                    except:
-                        pass
     else:
         console.print("[green]No documents to process. All documents already have markdown versions.[/green]")
         console.print()
